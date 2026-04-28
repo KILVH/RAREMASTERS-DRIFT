@@ -3,32 +3,48 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
-<title>SPB Drift — controls fix</title>
+<title>SPB Drift — FULL BUILD</title>
 
 <style>
 body { margin:0; overflow:hidden; background:#000; }
 
-canvas { display:block; }
+canvas {
+ display:block;
+ position:relative;
+ z-index:1;
+}
 
-/* 📱 ГОРИЗОНТАЛЬНЫЕ КНОПКИ */
-#controls{
+/* 📱 КНОПКИ */
+#leftControls{
  position:fixed;
- bottom:25px;
- left:50%;
- transform:translateX(-50%);
+ bottom:30px;
+ left:20px;
+ display:flex;
+ gap:15px;
+ z-index:9999;
+}
+
+#rightControls{
+ position:fixed;
+ bottom:30px;
+ right:20px;
  display:flex;
  gap:15px;
  z-index:9999;
 }
 
 .controlBtn{
- width:85px;
- height:85px;
- font-size:32px;
+ width:80px;
+ height:80px;
+ font-size:30px;
  border:none;
- border-radius:16px;
+ border-radius:20px;
  background:rgba(255,255,255,0.25);
  color:white;
+}
+
+.controlBtn:active{
+ background:rgba(255,255,255,0.5);
 }
 </style>
 </head>
@@ -37,9 +53,12 @@ canvas { display:block; }
 
 <canvas id="game"></canvas>
 
-<div id="controls">
+<div id="leftControls">
   <button class="controlBtn" id="left">◀</button>
   <button class="controlBtn" id="right">▶</button>
+</div>
+
+<div id="rightControls">
   <button class="controlBtn" id="gas">▲</button>
   <button class="controlBtn" id="brake">▼</button>
 </div>
@@ -48,8 +67,7 @@ canvas { display:block; }
 const canvas = document.getElementById("game");
 const ctx = canvas.getContext("2d");
 
-const zoom = 0.5;
-
+// resize
 function resize(){
  canvas.width = innerWidth;
  canvas.height = innerHeight;
@@ -57,27 +75,28 @@ function resize(){
 addEventListener("resize", resize);
 resize();
 
-// ===== INPUT =====
+// input
 let keys={};
-
-addEventListener("keydown",e=>keys[e.key]=true);
+addEventListener("keydown",e=>{
+ keys[e.key]=true;
+ if(gameOver && e.key==="Enter"){
+  reset();
+  gameOver=false;
+ }
+});
 addEventListener("keyup",e=>keys[e.key]=false);
 
-// 📱 ФИКС ТАЧА (главное)
+// touch
 function bindBtn(id,key){
  let el=document.getElementById(id);
 
- el.addEventListener("touchstart",e=>{
+ el.addEventListener("touchstart",(e)=>{
    e.preventDefault();
    keys[key]=true;
- },{passive:false});
-
- el.addEventListener("touchend",e=>{
-   e.preventDefault();
-   keys[key]=false;
  });
 
- el.addEventListener("touchcancel",()=>{
+ el.addEventListener("touchend",(e)=>{
+   e.preventDefault();
    keys[key]=false;
  });
 }
@@ -87,7 +106,7 @@ bindBtn("right","ArrowRight");
 bindBtn("gas","ArrowUp");
 bindBtn("brake","ArrowDown");
 
-// ===== ASSETS =====
+// assets
 const mapImg=new Image();
 const colImg=new Image();
 const carImg=new Image();
@@ -115,27 +134,29 @@ colImg.onload=()=>{
  ready++;
 };
 
-// ===== ЗВУК =====
-let audioCtx, engineOsc, engineGain, sirenOsc, sirenGain;
+// звук
+let audioCtx, engineOsc, engineGain, engineFilter;
 
 canvas.addEventListener("click",()=>{
  if(audioCtx) return;
+
  audioCtx=new AudioContext();
 
  engineOsc=audioCtx.createOscillator();
  engineOsc.type="triangle";
- engineGain=audioCtx.createGain();
- engineOsc.connect(engineGain).connect(audioCtx.destination);
- engineOsc.start();
 
- sirenOsc=audioCtx.createOscillator();
- sirenOsc.type="sine";
- sirenGain=audioCtx.createGain();
- sirenOsc.connect(sirenGain).connect(audioCtx.destination);
- sirenOsc.start();
+ engineGain=audioCtx.createGain();
+ engineGain.gain.value=0;
+
+ engineFilter=audioCtx.createBiquadFilter();
+ engineFilter.type="lowpass";
+ engineFilter.frequency.value=1200;
+
+ engineOsc.connect(engineFilter).connect(engineGain).connect(audioCtx.destination);
+ engineOsc.start();
 });
 
-// ===== МИР =====
+// мир
 const W=8192,H=8192;
 
 function isWall(x,y){
@@ -149,14 +170,18 @@ function isWall(x,y){
 function slide(x,y,vx,vy){
  let nx=x+vx, ny=y+vy;
  if(!isWall(nx,ny)) return {x:nx,y:ny,vx,vy};
+
  if(!isWall(x+vx,y)) return {x:x+vx,y:y,vx:vx,vy:0};
  if(!isWall(x,y+vy)) return {x:x,y:y+vy,vx:0,vy:vy};
+
  return {x:x,y:y,vx:0,vy:0};
 }
 
-// ===== GAME =====
-let car,camera={x:0,y:0},cops=[],marks=[],smoke=[];
+// game
+let car,camera={x:0,y:0},cops=[],smoke=[],marks=[];
 let driftScore=0;
+let gameOver=false;
+let throttle=0;
 
 function spawn(){
  for(let i=0;i<50000;i++){
@@ -169,112 +194,146 @@ function spawn(){
 function reset(){
  let s=spawn();
  car={x:s.x,y:s.y,angle:0,vx:0,vy:0};
- cops=[]; marks=[]; smoke=[];
+ cops=[]; smoke=[]; marks=[];
  driftScore=0;
+ throttle=0;
 }
 
 function wrap(a){ return Math.atan2(Math.sin(a),Math.cos(a)); }
 
 function update(){
+ if(gameOver) return;
 
  let fx=Math.cos(car.angle), fy=Math.sin(car.angle);
 
- if(keys["ArrowUp"]){ car.vx+=fx*0.25; car.vy+=fy*0.25; }
- if(keys["ArrowDown"]){ car.vx-=fx*0.2; car.vy-=fy*0.2; }
+ let target=keys["ArrowUp"]?1:0;
+ throttle+=(target-throttle)*0.08;
 
- if(keys["ArrowLeft"]) car.angle-=0.05;
- if(keys["ArrowRight"]) car.angle+=0.05;
+ let accel=0.24*throttle;
+ car.vx+=fx*accel;
+ car.vy+=fy*accel;
+
+ if(keys["ArrowDown"]){
+  car.vx-=fx*0.25;
+  car.vy-=fy*0.25;
+ }
+
+ let forward=car.vx*fx+car.vy*fy;
+ let sideX=car.vx-fx*forward;
+ let sideY=car.vy-fy*forward;
+
+ if(!keys["ArrowUp"]) forward*=0.94;
+ else forward*=0.992;
+
+ sideX*=0.985;
+ sideY*=0.985;
+
+ car.angle+=sideX*0.0038;
+
+ car.vx=fx*forward+sideX;
+ car.vy=fy*forward+sideY;
 
  let speed=Math.hypot(car.vx,car.vy);
 
- let velA=Math.atan2(car.vy,car.vx);
- let diff=Math.abs(Math.atan2(Math.sin(velA-car.angle),Math.cos(velA-car.angle)));
-
- let drifting = diff>0.6 && speed>6;
-
- if(drifting){
-  driftScore+=diff*speed*0.5;
-
-  let offX=Math.cos(car.angle+Math.PI/2)*12;
-  let offY=Math.sin(car.angle+Math.PI/2)*12;
-
-  marks.push({x:car.x+offX,y:car.y+offY,life:200});
-  marks.push({x:car.x-offX,y:car.y-offY,life:200});
-
-  smoke.push({x:car.x,y:car.y,life:25,size:10});
+ if(speed>14){
+  car.vx*=14/speed;
+  car.vy*=14/speed;
  }
+
+ let turn=0.04+speed*0.0015;
+ if(keys["ArrowLeft"]) car.angle-=turn;
+ if(keys["ArrowRight"]) car.angle+=turn;
 
  let m=slide(car.x,car.y,car.vx,car.vy);
  car.x=m.x; car.y=m.y;
+ car.vx=m.vx; car.vy=m.vy;
+
+ // ДРИФТ
+ let velA=Math.atan2(car.vy,car.vx);
+ let diff=Math.abs(wrap(velA-car.angle));
+ let drifting=diff>0.5 && speed>6;
+
+ if(drifting){
+  driftScore+=diff*speed*0.4;
+
+  smoke.push({x:car.x,y:car.y,life:30,size:8+Math.random()*6});
+
+  let offX=Math.cos(car.angle+Math.PI/2)*10;
+  let offY=Math.sin(car.angle+Math.PI/2)*10;
+
+  marks.push({x:car.x+offX,y:car.y+offY,life:120});
+  marks.push({x:car.x-offX,y:car.y-offY,life:120});
+ }
+
+ // звук
+ if(audioCtx){
+  let targetFreq=40+speed*4;
+  engineOsc.frequency.value+=(targetFreq-engineOsc.frequency.value)*0.1;
+
+  let targetGain=Math.min(0.08,speed/180);
+  engineGain.gain.value+=(targetGain-engineGain.gain.value)*0.08;
+ }
 
  // копы
  if(driftScore>1000 && cops.length<3){
   let s=spawn();
-  cops.push({x:s.x,y:s.y,hold:0});
+  cops.push({x:s.x,y:s.y,vx:0,vy:0,angle:0});
  }
 
  cops.forEach(c=>{
   let dx=car.x-c.x;
   let dy=car.y-c.y;
-  let dist=Math.hypot(dx,dy);
-
   let ang=Math.atan2(dy,dx);
-  c.x+=Math.cos(ang)*1.2;
-  c.y+=Math.sin(ang)*1.2;
 
-  if(dist<80){
-    c.hold++;
-    if(c.hold>60) reset();
-  } else c.hold=0;
+  c.angle+=(wrap(ang-c.angle))*0.15;
+
+  c.vx+=Math.cos(c.angle)*1.1;
+  c.vy+=Math.sin(c.angle)*1.1;
+
+  c.vx*=0.9;
+  c.vy*=0.9;
+
+  let mc=slide(c.x,c.y,c.vx,c.vy);
+  c.x=mc.x; c.y=mc.y;
  });
 
- // звук
- if(audioCtx){
-  engineOsc.frequency.value=50+speed*4;
-  engineGain.gain.value=speed/150;
-
-  let t=Date.now()*0.004;
-  sirenOsc.frequency.value=700+Math.sin(t)*200;
-  sirenGain.gain.value=cops.length?0.05:0;
- }
-
- camera.x = car.x - canvas.width/(2*zoom);
- camera.y = car.y - canvas.height/(2*zoom);
-
- marks.forEach(m=>m.life--);
- smoke.forEach(s=>s.life--);
-
- marks = marks.filter(m=>m.life>0);
- smoke = smoke.filter(s=>s.life>0);
+ camera.x=car.x-canvas.width/2;
+ camera.y=car.y-canvas.height/2;
 }
 
-// ===== DRAW =====
 function draw(){
  ctx.fillStyle="#000";
  ctx.fillRect(0,0,canvas.width,canvas.height);
 
  ctx.save();
- ctx.scale(zoom,zoom);
  ctx.translate(-camera.x,-camera.y);
 
  ctx.drawImage(mapImg,0,0,W,H);
 
+ // следы
  marks.forEach(m=>{
-  ctx.fillStyle="rgba(0,0,0,"+(m.life/200)+")";
+  ctx.fillStyle="rgba(0,0,0,"+(m.life/120)+")";
   ctx.fillRect(m.x-3,m.y-3,6,6);
  });
 
+ // дым
  smoke.forEach(s=>{
-  ctx.fillStyle="rgba(200,200,200,"+(s.life/25)+")";
+  ctx.fillStyle="rgba(200,200,200,"+(s.life/30)+")";
   ctx.beginPath();
   ctx.arc(s.x,s.y,s.size,0,Math.PI*2);
   ctx.fill();
  });
 
+ // копы
  cops.forEach(c=>{
-  ctx.drawImage(policeImg,c.x-40,c.y-80,80,160);
+  ctx.save();
+  ctx.translate(c.x,c.y);
+  ctx.rotate(c.angle-Math.PI/2);
+  ctx.drawImage(policeImg,-50,-100,100,200);
+  ctx.restore();
  });
 
+ // машина
  ctx.save();
  ctx.translate(car.x,car.y);
  ctx.rotate(car.angle-Math.PI/2);
@@ -288,7 +347,6 @@ function draw(){
  ctx.fillText("Drift: "+Math.floor(driftScore),20,50);
 }
 
-// LOOP
 function loop(){
  if(ready<4){ requestAnimationFrame(loop); return; }
  if(!car) reset();

@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
-<title>SPB Drift — FULL BUILD</title>
+<title>SPB Drift — zoom build</title>
 
 <style>
 body { margin:0; overflow:hidden; background:#000; }
@@ -20,7 +20,7 @@ canvas {
  bottom:30px;
  left:20px;
  display:flex;
- gap:15px;
+ gap:20px;
  z-index:9999;
 }
 
@@ -29,16 +29,16 @@ canvas {
  bottom:30px;
  right:20px;
  display:flex;
- gap:15px;
+ gap:20px;
  z-index:9999;
 }
 
 .controlBtn{
- width:80px;
- height:80px;
- font-size:30px;
+ width:140px;   /* 🔥 увеличены */
+ height:140px;
+ font-size:50px;
  border:none;
- border-radius:20px;
+ border-radius:25px;
  background:rgba(255,255,255,0.25);
  color:white;
 }
@@ -66,6 +66,9 @@ canvas {
 <script>
 const canvas = document.getElementById("game");
 const ctx = canvas.getContext("2d");
+
+// 🔥 ЗУМ
+const zoom = 0.5;
 
 // resize
 function resize(){
@@ -134,7 +137,7 @@ colImg.onload=()=>{
  ready++;
 };
 
-// звук
+// 🔊 звук
 let audioCtx, engineOsc, engineGain, engineFilter;
 
 canvas.addEventListener("click",()=>{
@@ -248,7 +251,7 @@ function update(){
  car.x=m.x; car.y=m.y;
  car.vx=m.vx; car.vy=m.vy;
 
- // ДРИФТ
+ // дрифт
  let velA=Math.atan2(car.vy,car.vx);
  let diff=Math.abs(wrap(velA-car.angle));
  let drifting=diff>0.5 && speed>6;
@@ -297,8 +300,9 @@ function update(){
   c.x=mc.x; c.y=mc.y;
  });
 
- camera.x=car.x-canvas.width/2;
- camera.y=car.y-canvas.height/2;
+ // 🔥 КАМЕРА С ЗУМОМ
+ camera.x = car.x - canvas.width/(2*zoom);
+ camera.y = car.y - canvas.height/(2*zoom);
 }
 
 function draw(){
@@ -306,17 +310,17 @@ function draw(){
  ctx.fillRect(0,0,canvas.width,canvas.height);
 
  ctx.save();
+
+ ctx.scale(zoom, zoom);
  ctx.translate(-camera.x,-camera.y);
 
  ctx.drawImage(mapImg,0,0,W,H);
 
- // следы
  marks.forEach(m=>{
   ctx.fillStyle="rgba(0,0,0,"+(m.life/120)+")";
   ctx.fillRect(m.x-3,m.y-3,6,6);
  });
 
- // дым
  smoke.forEach(s=>{
   ctx.fillStyle="rgba(200,200,200,"+(s.life/30)+")";
   ctx.beginPath();
@@ -324,7 +328,6 @@ function draw(){
   ctx.fill();
  });
 
- // копы
  cops.forEach(c=>{
   ctx.save();
   ctx.translate(c.x,c.y);
@@ -333,7 +336,6 @@ function draw(){
   ctx.restore();
  });
 
- // машина
  ctx.save();
  ctx.translate(car.x,car.y);
  ctx.rotate(car.angle-Math.PI/2);

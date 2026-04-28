@@ -141,7 +141,7 @@ colImg.onload=()=>{
  ready++;
 };
 
-// 🔊 ЗВУКИ
+// 🔊 звук
 let audioCtx, engineOsc, engineGain, driftNoise, driftGain, sirenOsc, sirenGain;
 
 canvas.addEventListener("click",()=>{
@@ -165,7 +165,6 @@ canvas.addEventListener("click",()=>{
 
  driftGain=audioCtx.createGain();
  driftGain.gain.value=0;
-
  driftNoise.connect(driftGain).connect(audioCtx.destination);
  driftNoise.start();
 
@@ -173,7 +172,6 @@ canvas.addEventListener("click",()=>{
  sirenOsc.type="square";
  sirenGain=audioCtx.createGain();
  sirenGain.gain.value=0;
-
  sirenOsc.connect(sirenGain).connect(audioCtx.destination);
  sirenOsc.start();
 });
@@ -202,6 +200,7 @@ let car,camera={x:0,y:0},cops=[],smoke=[],marks=[];
 let driftScore=0;
 let gameOver=false;
 let throttle=0;
+let arrestTimer=0;
 
 function spawn(){
  for(let i=0;i<50000;i++){
@@ -218,6 +217,7 @@ function reset(){
  driftScore=0;
  throttle=0;
  gameOver=false;
+ arrestTimer=0;
  restartBtn.style.display="none";
 }
 
@@ -288,10 +288,11 @@ function update(){
   });
  }
 
- if(driftScore>1000 && cops.length<3){
-  let s=spawn();
-  cops.push({x:s.x,y:s.y,vx:0,vy:0,angle:0});
- }
+ // 🚓 СПАВН ПО ПОРОГАМ
+ if(driftScore>1000 && cops.length<1) cops.push({...spawn(),vx:0,vy:0,angle:0});
+ if(driftScore>5000 && cops.length<2) cops.push({...spawn(),vx:0,vy:0,angle:0});
+ if(driftScore>50000 && cops.length<3) cops.push({...spawn(),vx:0,vy:0,angle:0});
+ if(driftScore>100000 && cops.length<4) cops.push({...spawn(),vx:0,vy:0,angle:0});
 
  let caught=false;
 
@@ -300,34 +301,37 @@ function update(){
   let dy=car.y-c.y;
   let dist=Math.hypot(dx,dy);
 
-  // 🚓 НОРМАЛЬНОЕ ПРЕСЛЕДОВАНИЕ
-  let nx = dx / dist;
-  let ny = dy / dist;
+  let nx=dx/dist;
+  let ny=dy/dist;
 
-  c.vx += nx * 1.8;
-  c.vy += ny * 1.8;
+  // мягкое преследование (без магнита)
+  c.vx += nx * 0.8;
+  c.vy += ny * 0.8;
 
-  c.vx *= 0.9;
-  c.vy *= 0.9;
+  c.vx *= 0.92;
+  c.vy *= 0.92;
 
   let mc=slide(c.x,c.y,c.vx,c.vy);
   c.x=mc.x; c.y=mc.y;
 
-  c.angle = Math.atan2(c.vy, c.vx);
+  c.angle=Math.atan2(c.vy,c.vx);
 
-  // 💥 МГНОВЕННЫЙ АРЕСТ
-  if(dist < 70){
-    caught = true;
+  // ⏱ арест ~1 секунда
+  if(dist < 80){
+    arrestTimer++;
+    if(arrestTimer > 60) caught=true;
+  } else {
+    arrestTimer=0;
   }
  });
 
  if(sirenOsc){
-  sirenGain.gain.value = cops.length ? 0.07 : 0;
+  sirenGain.gain.value = cops.length ? 0.05 : 0;
   sirenOsc.frequency.value = 600 + Math.sin(Date.now()*0.005)*200;
  }
 
  if(caught){
-  gameOver = true;
+  gameOver=true;
   restartBtn.style.display="block";
  }
 

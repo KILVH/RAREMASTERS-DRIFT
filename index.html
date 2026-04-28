@@ -6,10 +6,41 @@
 <style>
 body { margin:0; overflow:hidden; background:#000; }
 canvas { display:block; }
+
+/* 📱 МОБИЛЬНЫЕ КНОПКИ */
+#mobileControls{
+ position:fixed;
+ bottom:20px;
+ left:50%;
+ transform:translateX(-50%);
+ display:flex;
+ gap:12px;
+ z-index:10;
+}
+
+#mobileControls button{
+ width:65px;
+ height:65px;
+ font-size:26px;
+ border:none;
+ border-radius:12px;
+ background:rgba(255,255,255,0.15);
+ color:white;
+}
 </style>
 </head>
+
 <body>
+
 <canvas id="game"></canvas>
+
+<!-- 📱 КНОПКИ -->
+<div id="mobileControls">
+  <button id="left">◀</button>
+  <button id="right">▶</button>
+  <button id="gas">▲</button>
+  <button id="brake">▼</button>
+</div>
 
 <script>
 const canvas = document.getElementById("game");
@@ -33,6 +64,26 @@ addEventListener("keydown",e=>{
   }
 });
 addEventListener("keyup",e=>keys[e.key]=false);
+
+// 📱 МОБИЛЬНОЕ УПРАВЛЕНИЕ
+function bindBtn(id,key){
+ let el=document.getElementById(id);
+
+ el.addEventListener("touchstart",(e)=>{
+   e.preventDefault();
+   keys[key]=true;
+ });
+
+ el.addEventListener("touchend",(e)=>{
+   e.preventDefault();
+   keys[key]=false;
+ });
+}
+
+bindBtn("left","ArrowLeft");
+bindBtn("right","ArrowRight");
+bindBtn("gas","ArrowUp");
+bindBtn("brake","ArrowDown");
 
 // ===== ASSETS =====
 const mapImg=new Image();
@@ -106,7 +157,6 @@ function isWall(x,y){
   return colData[(py*colW+px)*4]<100;
 }
 
-// 🧱 СКОЛЬЖЕНИЕ ВДОЛЬ СТЕН
 function slide(x,y,vx,vy){
   let nx=x+vx, ny=y+vy;
   if(!isWall(nx,ny)) return {x:nx,y:ny,vx,vy};
@@ -123,7 +173,6 @@ let driftScore=0;
 let gameOver=false;
 let throttle=0;
 
-// радиусы для столкновений
 const CAR_R = 28;
 const COP_R = 32;
 
@@ -193,7 +242,7 @@ function update(){
   car.x=m.x; car.y=m.y;
   car.vx=m.vx; car.vy=m.vy;
 
-  // ===== ДРИФТ =====
+  // ДРИФТ
   let velA=Math.atan2(car.vy,car.vx);
   let diff=Math.abs(wrap(velA-car.angle));
   let drifting=diff>0.5 && speed>6;
@@ -210,109 +259,6 @@ function update(){
     marks.push({x:car.x-offX,y:car.y-offY,life:120});
   }
 
-  // ===== ЗВУК =====
-  if(audioCtx){
-    engineOsc.frequency.value=60+speed*5;
-    engineGain.gain.value+=((Math.min(0.12,speed/120))-engineGain.gain.value)*0.05;
-
-    skidGain.gain.value+=((drifting?0.08:0)-skidGain.gain.value)*0.1;
-
-    let t=Date.now()*0.002;
-    sirenOsc.frequency.value=600+Math.sin(t)*200;
-    sirenGain.gain.value+=((cops.length?0.03:0)-sirenGain.gain.value)*0.05;
-  }
-
-  // ===== СПАВН КОПОВ =====
-  let desired=0;
-  if(driftScore>=1000) desired=1;
-  if(driftScore>=5000) desired=2;
-  if(driftScore>=50000) desired=3+Math.floor((driftScore-50000)/50000);
-  desired=Math.min(10,desired);
-
-  while(cops.length<desired){
-    let s=spawn();
-    cops.push({x:s.x,y:s.y,vx:0,vy:0,angle:0,hold:0});
-  }
-
-  // ===== КОПЫ =====
-  // 1) поведение + лёгкое расхождение (разные "дороги")
-  cops.forEach((c,i)=>{
-    let dx=car.x-c.x;
-    let dy=car.y-c.y;
-    let dist=Math.hypot(dx,dy);
-
-    let ang=Math.atan2(dy,dx);
-
-    // если близко — не в центр, а слегка обходит
-    if(dist < 110){
-      ang += (i%2===0 ? 0.35 : -0.35) * Math.PI;
-    }
-
-    let dA=wrap(ang-c.angle);
-    c.angle+=dA*0.18;
-
-    // скорость чуть ниже прежней
-    c.vx+=Math.cos(c.angle)*1.05;
-    c.vy+=Math.sin(c.angle)*1.05;
-
-    c.vx*=0.9;
-    c.vy*=0.9;
-
-    // separation между копами (чтобы не ехали по одной линии)
-    for(let j=0;j<cops.length;j++){
-      if(i===j) continue;
-      let o=cops[j];
-      let ddx=c.x-o.x, ddy=c.y-o.y;
-      let d=Math.hypot(ddx,ddy);
-      let min=COP_R*2;
-      if(d>0.01 && d<min){
-        let nx=ddx/d, ny=ddy/d;
-        let push=(min-d)*0.5;
-        c.x += nx*push;
-        c.y += ny*push;
-      }
-    }
-
-    let mc=slide(c.x,c.y,c.vx,c.vy);
-    c.x=mc.x; c.y=mc.y;
-    c.vx=mc.vx; c.vy=mc.vy;
-
-    // столкновение с игроком (без прилипания)
-    if(dist < (CAR_R+COP_R) && dist>0.01){
-      let nx=dx/dist, ny=dy/dist;
-      let overlap=(CAR_R+COP_R)-dist;
-
-      car.x+=nx*overlap*0.7;
-      car.y+=ny*overlap*0.7;
-
-      c.x-=nx*overlap*0.3;
-      c.y-=ny*overlap*0.3;
-
-      // убираем движение внутрь игрока
-      let dot = c.vx*nx + c.vy*ny;
-      if(dot>0){
-        c.vx -= nx*dot;
-        c.vy -= ny*dot;
-      }
-    }
-
-    // ===== ПОИМКА ~1 СЕК =====
-    if(dist<95){
-      c.hold++;
-      car.vx*=0.965;
-      car.vy*=0.965;
-
-      if(c.hold>60) gameOver=true; // ~1 сек (60fps)
-    }else c.hold=0;
-  });
-
-  // эффекты
-  smoke.forEach(s=>s.life--);
-  smoke=smoke.filter(s=>s.life>0);
-
-  marks.forEach(m=>m.life--);
-  marks=marks.filter(m=>m.life>0);
-
   camera.x=car.x-canvas.width/2;
   camera.y=car.y-canvas.height/2;
 }
@@ -327,13 +273,11 @@ function draw(){
 
   ctx.drawImage(mapImg,0,0,W,H);
 
-  // следы
   marks.forEach(m=>{
     ctx.fillStyle="rgba(0,0,0,"+(m.life/120)+")";
     ctx.fillRect(m.x-3,m.y-3,6,6);
   });
 
-  // дым
   smoke.forEach(s=>{
     ctx.fillStyle="rgba(200,200,200,"+(s.life/30)+")";
     ctx.beginPath();
@@ -341,16 +285,6 @@ function draw(){
     ctx.fill();
   });
 
-  // копы
-  cops.forEach(c=>{
-    ctx.save();
-    ctx.translate(c.x,c.y);
-    ctx.rotate(c.angle-Math.PI/2);
-    ctx.drawImage(policeImg,-50,-100,100,200);
-    ctx.restore();
-  });
-
-  // машина
   ctx.save();
   ctx.translate(car.x,car.y);
   ctx.rotate(car.angle-Math.PI/2);
@@ -358,24 +292,9 @@ function draw(){
   ctx.restore();
 
   ctx.restore();
-
-  ctx.fillStyle="white";
-  ctx.font="bold 50px Arial";
-  ctx.fillText("Drift: "+Math.floor(driftScore),20,60);
-
-  if(gameOver){
-    ctx.fillStyle="rgba(0,0,0,0.7)";
-    ctx.fillRect(0,0,canvas.width,canvas.height);
-
-    ctx.fillStyle="white";
-    ctx.font="bold 40px Arial";
-    ctx.textAlign="center";
-    ctx.fillText("Тебя приняли", canvas.width/2, canvas.height/2);
-    ctx.fillText("ENTER чтобы начать заново", canvas.width/2, canvas.height/2+60);
-  }
 }
 
-// ===== LOOP =====
+// LOOP
 function loop(){
   if(ready<4){ requestAnimationFrame(loop); return; }
   if(!car) reset();

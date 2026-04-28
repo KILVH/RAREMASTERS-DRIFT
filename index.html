@@ -149,17 +149,13 @@ canvas.addEventListener("click",()=>{
 
  audioCtx=new AudioContext();
 
- // двигатель (МЯГЧЕ)
  engineOsc=audioCtx.createOscillator();
  engineOsc.type="triangle";
-
  engineGain=audioCtx.createGain();
  engineGain.gain.value=0;
-
  engineOsc.connect(engineGain).connect(audioCtx.destination);
  engineOsc.start();
 
- // дрифт
  driftNoise=audioCtx.createBufferSource();
  let buffer=audioCtx.createBuffer(1,44100,44100);
  let data=buffer.getChannelData(0);
@@ -173,7 +169,6 @@ canvas.addEventListener("click",()=>{
  driftNoise.connect(driftGain).connect(audioCtx.destination);
  driftNoise.start();
 
- // сирена
  sirenOsc=audioCtx.createOscillator();
  sirenOsc.type="square";
  sirenGain=audioCtx.createGain();
@@ -183,7 +178,6 @@ canvas.addEventListener("click",()=>{
  sirenOsc.start();
 });
 
-// мир
 const W=8192,H=8192;
 
 function isWall(x,y){
@@ -208,7 +202,6 @@ let car,camera={x:0,y:0},cops=[],smoke=[],marks=[];
 let driftScore=0;
 let gameOver=false;
 let throttle=0;
-let arrestTimer=0;
 
 function spawn(){
  for(let i=0;i<50000;i++){
@@ -225,7 +218,6 @@ function reset(){
  driftScore=0;
  throttle=0;
  gameOver=false;
- arrestTimer=0;
  restartBtn.style.display="none";
 }
 
@@ -267,7 +259,6 @@ function update(){
 
  let speed=Math.hypot(car.vx,car.vy);
 
- // 🔊 мотор (ТИХИЙ И МЯГКИЙ)
  if(engineOsc){
   engineOsc.frequency.value = 60 + speed*10 + throttle*120;
   engineGain.gain.value = 0.12 * throttle;
@@ -309,30 +300,29 @@ function update(){
   let dy=car.y-c.y;
   let dist=Math.hypot(dx,dy);
 
-  let ang=Math.atan2(dy,dx);
-  c.angle+=(wrap(ang-c.angle))*0.25;
+  // 🚓 НОРМАЛЬНОЕ ПРЕСЛЕДОВАНИЕ
+  let nx = dx / dist;
+  let ny = dy / dist;
 
-  c.vx+=Math.cos(c.angle)*2.2;
-  c.vy+=Math.sin(c.angle)*2.2;
+  c.vx += nx * 1.8;
+  c.vy += ny * 1.8;
 
-  c.vx*=0.92;
-  c.vy*=0.92;
+  c.vx *= 0.9;
+  c.vy *= 0.9;
 
   let mc=slide(c.x,c.y,c.vx,c.vy);
   c.x=mc.x; c.y=mc.y;
 
-  if(dist < 120){
-    arrestTimer++;
-    if(arrestTimer > 40){
-      caught = true;
-    }
-  } else {
-    arrestTimer = 0;
+  c.angle = Math.atan2(c.vy, c.vx);
+
+  // 💥 МГНОВЕННЫЙ АРЕСТ
+  if(dist < 70){
+    caught = true;
   }
  });
 
  if(sirenOsc){
-  sirenGain.gain.value = cops.length ? 0.15 : 0;
+  sirenGain.gain.value = cops.length ? 0.07 : 0;
   sirenOsc.frequency.value = 600 + Math.sin(Date.now()*0.005)*200;
  }
 

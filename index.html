@@ -3,40 +3,30 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
-<title>SPB Drift — fixed</title>
+<title>SPB Drift — controls fix</title>
 
 <style>
 body { margin:0; overflow:hidden; background:#000; }
 
 canvas { display:block; }
 
-/* 📱 КНОПКИ — РАЗНЕСЕНЫ И НЕ ЛЕЗУТ */
-#leftControls{
+/* 📱 ГОРИЗОНТАЛЬНЫЕ КНОПКИ */
+#controls{
  position:fixed;
- bottom:40px;
- left:20px;
+ bottom:25px;
+ left:50%;
+ transform:translateX(-50%);
  display:flex;
- flex-direction:column;
- gap:20px;
- z-index:9999;
-}
-
-#rightControls{
- position:fixed;
- bottom:40px;
- right:20px;
- display:flex;
- flex-direction:column;
- gap:20px;
+ gap:15px;
  z-index:9999;
 }
 
 .controlBtn{
- width:110px;
- height:110px;
- font-size:40px;
+ width:85px;
+ height:85px;
+ font-size:32px;
  border:none;
- border-radius:20px;
+ border-radius:16px;
  background:rgba(255,255,255,0.25);
  color:white;
 }
@@ -47,12 +37,9 @@ canvas { display:block; }
 
 <canvas id="game"></canvas>
 
-<div id="leftControls">
+<div id="controls">
   <button class="controlBtn" id="left">◀</button>
   <button class="controlBtn" id="right">▶</button>
-</div>
-
-<div id="rightControls">
   <button class="controlBtn" id="gas">▲</button>
   <button class="controlBtn" id="brake">▼</button>
 </div>
@@ -70,15 +57,31 @@ function resize(){
 addEventListener("resize", resize);
 resize();
 
+// ===== INPUT =====
 let keys={};
+
 addEventListener("keydown",e=>keys[e.key]=true);
 addEventListener("keyup",e=>keys[e.key]=false);
 
+// 📱 ФИКС ТАЧА (главное)
 function bindBtn(id,key){
  let el=document.getElementById(id);
- el.addEventListener("touchstart",e=>{e.preventDefault(); keys[key]=true;});
- el.addEventListener("touchend",e=>{e.preventDefault(); keys[key]=false;});
+
+ el.addEventListener("touchstart",e=>{
+   e.preventDefault();
+   keys[key]=true;
+ },{passive:false});
+
+ el.addEventListener("touchend",e=>{
+   e.preventDefault();
+   keys[key]=false;
+ });
+
+ el.addEventListener("touchcancel",()=>{
+   keys[key]=false;
+ });
 }
+
 bindBtn("left","ArrowLeft");
 bindBtn("right","ArrowRight");
 bindBtn("gas","ArrowUp");
@@ -170,12 +173,17 @@ function reset(){
  driftScore=0;
 }
 
+function wrap(a){ return Math.atan2(Math.sin(a),Math.cos(a)); }
+
 function update(){
 
  let fx=Math.cos(car.angle), fy=Math.sin(car.angle);
 
  if(keys["ArrowUp"]){ car.vx+=fx*0.25; car.vy+=fy*0.25; }
  if(keys["ArrowDown"]){ car.vx-=fx*0.2; car.vy-=fy*0.2; }
+
+ if(keys["ArrowLeft"]) car.angle-=0.05;
+ if(keys["ArrowRight"]) car.angle+=0.05;
 
  let speed=Math.hypot(car.vx,car.vy);
 
@@ -187,21 +195,19 @@ function update(){
  if(drifting){
   driftScore+=diff*speed*0.5;
 
-  // следы шин
   let offX=Math.cos(car.angle+Math.PI/2)*12;
   let offY=Math.sin(car.angle+Math.PI/2)*12;
 
   marks.push({x:car.x+offX,y:car.y+offY,life:200});
   marks.push({x:car.x-offX,y:car.y-offY,life:200});
 
-  // дым отдельно
   smoke.push({x:car.x,y:car.y,life:25,size:10});
  }
 
  let m=slide(car.x,car.y,car.vx,car.vy);
  car.x=m.x; car.y=m.y;
 
- // ===== КОПЫ =====
+ // копы
  if(driftScore>1000 && cops.length<3){
   let s=spawn();
   cops.push({x:s.x,y:s.y,hold:0});
@@ -216,16 +222,13 @@ function update(){
   c.x+=Math.cos(ang)*1.2;
   c.y+=Math.sin(ang)*1.2;
 
-  // 🔥 ЛОВЛЯ
   if(dist<80){
     c.hold++;
-    if(c.hold>60){
-      reset();
-    }
+    if(c.hold>60) reset();
   } else c.hold=0;
  });
 
- // 🔊 звук
+ // звук
  if(audioCtx){
   engineOsc.frequency.value=50+speed*4;
   engineGain.gain.value=speed/150;
@@ -238,7 +241,6 @@ function update(){
  camera.x = car.x - canvas.width/(2*zoom);
  camera.y = car.y - canvas.height/(2*zoom);
 
- // жизнь эффектов
  marks.forEach(m=>m.life--);
  smoke.forEach(s=>s.life--);
 
@@ -257,13 +259,11 @@ function draw(){
 
  ctx.drawImage(mapImg,0,0,W,H);
 
- // следы шин
  marks.forEach(m=>{
   ctx.fillStyle="rgba(0,0,0,"+(m.life/200)+")";
   ctx.fillRect(m.x-3,m.y-3,6,6);
  });
 
- // дым
  smoke.forEach(s=>{
   ctx.fillStyle="rgba(200,200,200,"+(s.life/25)+")";
   ctx.beginPath();
@@ -271,12 +271,10 @@ function draw(){
   ctx.fill();
  });
 
- // копы
  cops.forEach(c=>{
   ctx.drawImage(policeImg,c.x-40,c.y-80,80,160);
  });
 
- // машина
  ctx.save();
  ctx.translate(car.x,car.y);
  ctx.rotate(car.angle-Math.PI/2);
@@ -290,7 +288,7 @@ function draw(){
  ctx.fillText("Drift: "+Math.floor(driftScore),20,50);
 }
 
-// ===== LOOP =====
+// LOOP
 function loop(){
  if(ready<4){ requestAnimationFrame(loop); return; }
  if(!car) reset();

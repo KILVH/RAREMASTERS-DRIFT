@@ -67,6 +67,8 @@ canvas {
 const canvas = document.getElementById("game");
 const ctx = canvas.getContext("2d");
 
+const SCALE = 0.5;
+
 // resize
 function resize(){
  canvas.width = innerWidth;
@@ -248,7 +250,6 @@ function update(){
  car.x=m.x; car.y=m.y;
  car.vx=m.vx; car.vy=m.vy;
 
- // ДРИФТ
  let velA=Math.atan2(car.vy,car.vx);
  let diff=Math.abs(wrap(velA-car.angle));
  let drifting=diff>0.5 && speed>6;
@@ -265,16 +266,6 @@ function update(){
   marks.push({x:car.x-offX,y:car.y-offY,life:120});
  }
 
- // звук
- if(audioCtx){
-  let targetFreq=40+speed*4;
-  engineOsc.frequency.value+=(targetFreq-engineOsc.frequency.value)*0.1;
-
-  let targetGain=Math.min(0.08,speed/180);
-  engineGain.gain.value+=(targetGain-engineGain.gain.value)*0.08;
- }
-
- // копы
  if(driftScore>1000 && cops.length<3){
   let s=spawn();
   cops.push({x:s.x,y:s.y,vx:0,vy:0,angle:0});
@@ -297,26 +288,26 @@ function update(){
   c.x=mc.x; c.y=mc.y;
  });
 
- camera.x=car.x-canvas.width/2;
- camera.y=car.y-canvas.height/2;
+ // 👇 ВАЖНО — камера с учётом масштаба
+ camera.x=car.x - (canvas.width/(2*SCALE));
+ camera.y=car.y - (canvas.height/(2*SCALE));
 }
 
 function draw(){
- ctx.fillStyle="#000";
- ctx.fillRect(0,0,canvas.width,canvas.height);
+ ctx.setTransform(1,0,0,1,0,0);
+ ctx.clearRect(0,0,canvas.width,canvas.height);
 
- ctx.save();
+ ctx.scale(SCALE,SCALE);
+
  ctx.translate(-camera.x,-camera.y);
 
  ctx.drawImage(mapImg,0,0,W,H);
 
- // следы
  marks.forEach(m=>{
   ctx.fillStyle="rgba(0,0,0,"+(m.life/120)+")";
   ctx.fillRect(m.x-3,m.y-3,6,6);
  });
 
- // дым
  smoke.forEach(s=>{
   ctx.fillStyle="rgba(200,200,200,"+(s.life/30)+")";
   ctx.beginPath();
@@ -324,7 +315,6 @@ function draw(){
   ctx.fill();
  });
 
- // копы
  cops.forEach(c=>{
   ctx.save();
   ctx.translate(c.x,c.y);
@@ -333,15 +323,14 @@ function draw(){
   ctx.restore();
  });
 
- // машина
  ctx.save();
  ctx.translate(car.x,car.y);
  ctx.rotate(car.angle-Math.PI/2);
  ctx.drawImage(carImg,-45,-90,90,180);
  ctx.restore();
 
- ctx.restore();
-
+ // UI
+ ctx.setTransform(1,0,0,1,0,0);
  ctx.fillStyle="white";
  ctx.font="bold 40px Arial";
  ctx.fillText("Drift: "+Math.floor(driftScore),20,50);

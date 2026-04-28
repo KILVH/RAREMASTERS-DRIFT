@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
-<title>SPB Drift — mobile fixed</title>
+<title>SPB Drift — mobile pro</title>
 
 <style>
 body { margin:0; overflow:hidden; background:#000; }
@@ -15,24 +15,36 @@ canvas {
 }
 
 /* 📱 КНОПКИ */
-#mobileControls{
+#leftControls{
  position:fixed;
- bottom:20px;
- left:50%;
- transform:translateX(-50%);
+ bottom:30px;
+ left:20px;
  display:flex;
- gap:14px;
+ gap:20px;
  z-index:9999;
 }
 
-#mobileControls button{
- width:70px;
- height:70px;
- font-size:26px;
+#rightControls{
+ position:fixed;
+ bottom:30px;
+ right:20px;
+ display:flex;
+ gap:20px;
+ z-index:9999;
+}
+
+.controlBtn{
+ width:160px;
+ height:160px;
+ font-size:60px;
  border:none;
- border-radius:14px;
+ border-radius:25px;
  background:rgba(255,255,255,0.25);
  color:white;
+}
+
+.controlBtn:active{
+ background:rgba(255,255,255,0.5);
 }
 </style>
 </head>
@@ -41,12 +53,16 @@ canvas {
 
 <canvas id="game"></canvas>
 
-<!-- 📱 КНОПКИ -->
-<div id="mobileControls">
-  <button id="left">◀</button>
-  <button id="right">▶</button>
-  <button id="gas">▲</button>
-  <button id="brake">▼</button>
+<!-- ЛЕВО -->
+<div id="leftControls">
+  <button class="controlBtn" id="left">◀</button>
+  <button class="controlBtn" id="right">▶</button>
+</div>
+
+<!-- ПРАВО -->
+<div id="rightControls">
+  <button class="controlBtn" id="gas">▲</button>
+  <button class="controlBtn" id="brake">▼</button>
 </div>
 
 <script>
@@ -72,7 +88,7 @@ addEventListener("keydown",e=>{
 });
 addEventListener("keyup",e=>keys[e.key]=false);
 
-// 📱 TOUCH УПРАВЛЕНИЕ
+// 📱 TOUCH
 function bindBtn(id,key){
  let el=document.getElementById(id);
 
@@ -92,8 +108,7 @@ bindBtn("right","ArrowRight");
 bindBtn("gas","ArrowUp");
 bindBtn("brake","ArrowDown");
 
-// ===== дальше твой код БЕЗ изменений =====
-
+// assets
 const mapImg=new Image();
 const colImg=new Image();
 const carImg=new Image();
@@ -121,35 +136,30 @@ colImg.onload=()=>{
  ready++;
 };
 
-let audioCtx, engineOsc, engineGain, skidGain, noise, sirenOsc, sirenGain;
+// 🔊 НОРМАЛЬНЫЙ ЗВУК
+let audioCtx, engineOsc, engineGain, engineFilter;
 
 canvas.addEventListener("click",()=>{
  if(audioCtx) return;
+
  audioCtx=new AudioContext();
 
  engineOsc=audioCtx.createOscillator();
- engineOsc.type="sine";
+ engineOsc.type="triangle";
+
  engineGain=audioCtx.createGain();
- engineOsc.connect(engineGain).connect(audioCtx.destination);
+ engineGain.gain.value=0;
+
+ engineFilter=audioCtx.createBiquadFilter();
+ engineFilter.type="lowpass";
+ engineFilter.frequency.value=1200;
+
+ engineOsc
+   .connect(engineFilter)
+   .connect(engineGain)
+   .connect(audioCtx.destination);
+
  engineOsc.start();
-
- let buffer=audioCtx.createBuffer(1,44100,44100);
- let data=buffer.getChannelData(0);
- for(let i=0;i<44100;i++) data[i]=Math.random()*2-1;
-
- noise=audioCtx.createBufferSource();
- noise.buffer=buffer;
- noise.loop=true;
-
- skidGain=audioCtx.createGain();
- noise.connect(skidGain).connect(audioCtx.destination);
- noise.start();
-
- sirenOsc=audioCtx.createOscillator();
- sirenOsc.type="sine";
- sirenGain=audioCtx.createGain();
- sirenOsc.connect(sirenGain).connect(audioCtx.destination);
- sirenOsc.start();
 });
 
 const W=8192,H=8192;
@@ -172,7 +182,8 @@ function slide(x,y,vx,vy){
  return {x:x,y:y,vx:0,vy:0};
 }
 
-let car,camera={x:0,y:0},cops=[],smoke=[],marks=[];
+// game
+let car,camera={x:0,y:0};
 let driftScore=0;
 let gameOver=false;
 let throttle=0;
@@ -188,7 +199,6 @@ function spawn(){
 function reset(){
  let s=spawn();
  car={x:s.x,y:s.y,angle:0,vx:0,vy:0};
- cops=[]; smoke=[]; marks=[];
  driftScore=0;
  throttle=0;
 }
@@ -241,6 +251,15 @@ function update(){
  let m=slide(car.x,car.y,car.vx,car.vy);
  car.x=m.x; car.y=m.y;
  car.vx=m.vx; car.vy=m.vy;
+
+ // 🔊 звук обновление
+ if(audioCtx){
+  let targetFreq=40+speed*4;
+  engineOsc.frequency.value+= (targetFreq-engineOsc.frequency.value)*0.1;
+
+  let targetGain=Math.min(0.08,speed/180);
+  engineGain.gain.value+= (targetGain-engineGain.gain.value)*0.08;
+ }
 
  camera.x=car.x-canvas.width/2;
  camera.y=car.y-canvas.height/2;

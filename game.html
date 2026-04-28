@@ -1,0 +1,391 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+<meta charset="UTF-8">
+<title>SPB Drift — cops smart 1s</title>
+<style>
+body { margin:0; overflow:hidden; background:#000; }
+canvas { display:block; }
+</style>
+</head>
+<body>
+<canvas id="game"></canvas>
+
+<script>
+const canvas = document.getElementById("game");
+const ctx = canvas.getContext("2d");
+
+// ===== RESIZE =====
+function resize(){
+  canvas.width = innerWidth;
+  canvas.height = innerHeight;
+}
+addEventListener("resize", resize);
+resize();
+
+// ===== INPUT =====
+let keys={};
+addEventListener("keydown",e=>{
+  keys[e.key]=true;
+  if(gameOver && e.key==="Enter"){
+    reset();
+    gameOver=false;
+  }
+});
+addEventListener("keyup",e=>keys[e.key]=false);
+
+// ===== ASSETS =====
+const mapImg=new Image();
+const colImg=new Image();
+const carImg=new Image();
+const policeImg=new Image();
+
+mapImg.src="map.png";
+colImg.src="map_collision.png";
+carImg.src="zhiga.png";
+policeImg.src="police.png";
+
+let ready=0;
+mapImg.onload=()=>ready++;
+carImg.onload=()=>ready++;
+policeImg.onload=()=>ready++;
+
+let colData,colW,colH;
+colImg.onload=()=>{
+  let c=document.createElement("canvas");
+  let ct=c.getContext("2d");
+  c.width=colImg.width;
+  c.height=colImg.height;
+  ct.drawImage(colImg,0,0);
+  colData=ct.getImageData(0,0,c.width,c.height).data;
+  colW=c.width; colH=c.height;
+  ready++;
+};
+
+// ===== AUDIO =====
+let audioCtx, engineOsc, engineGain, skidGain, noise, sirenOsc, sirenGain;
+
+canvas.addEventListener("click",()=>{
+  if(audioCtx) return;
+  audioCtx=new AudioContext();
+
+  engineOsc=audioCtx.createOscillator();
+  engineOsc.type="sine";
+  engineGain=audioCtx.createGain();
+  engineOsc.connect(engineGain).connect(audioCtx.destination);
+  engineOsc.start();
+
+  let buffer=audioCtx.createBuffer(1,44100,44100);
+  let data=buffer.getChannelData(0);
+  for(let i=0;i<44100;i++) data[i]=Math.random()*2-1;
+
+  noise=audioCtx.createBufferSource();
+  noise.buffer=buffer;
+  noise.loop=true;
+
+  skidGain=audioCtx.createGain();
+  noise.connect(skidGain).connect(audioCtx.destination);
+  noise.start();
+
+  sirenOsc=audioCtx.createOscillator();
+  sirenOsc.type="sine";
+  sirenGain=audioCtx.createGain();
+  sirenOsc.connect(sirenGain).connect(audioCtx.destination);
+  sirenOsc.start();
+});
+
+// ===== WORLD =====
+const W=8192,H=8192;
+
+// ===== COLLISION =====
+function isWall(x,y){
+  if(!colData) return false;
+  let px=Math.floor(x/W*colW);
+  let py=Math.floor(y/H*colH);
+  if(px<0||py<0||px>=colW||py>=colH) return true;
+  return colData[(py*colW+px)*4]<100;
+}
+
+// 🧱 СКОЛЬЖЕНИЕ ВДОЛЬ СТЕН
+function slide(x,y,vx,vy){
+  let nx=x+vx, ny=y+vy;
+  if(!isWall(nx,ny)) return {x:nx,y:ny,vx,vy};
+
+  if(!isWall(x+vx,y)) return {x:x+vx,y:y,vx:vx,vy:0};
+  if(!isWall(x,y+vy)) return {x:x,y:y+vy,vx:0,vy:vy};
+
+  return {x:x,y:y,vx:0,vy:0};
+}
+
+// ===== GAME =====
+let car,camera={x:0,y:0},cops=[],smoke=[],marks=[];
+let driftScore=0;
+let gameOver=false;
+let throttle=0;
+
+// радиусы для столкновений
+const CAR_R = 28;
+const COP_R = 32;
+
+function spawn(){
+  for(let i=0;i<50000;i++){
+    let x=Math.random()*W,y=Math.random()*H;
+    if(!isWall(x,y)) return {x,y};
+  }
+  return {x:4000,y:4000};
+}
+
+function reset(){
+  let s=spawn();
+  car={x:s.x,y:s.y,angle:0,vx:0,vy:0};
+  cops=[]; smoke=[]; marks=[];
+  driftScore=0;
+  throttle=0;
+}
+
+function wrap(a){ return Math.atan2(Math.sin(a),Math.cos(a)); }
+
+// ===== UPDATE =====
+function update(){
+  if(gameOver) return;
+
+  let fx=Math.cos(car.angle), fy=Math.sin(car.angle);
+
+  let target=keys["ArrowUp"]?1:0;
+  throttle+=(target-throttle)*0.08;
+
+  let accel=0.24*throttle;
+  car.vx+=fx*accel;
+  car.vy+=fy*accel;
+
+  if(keys["ArrowDown"]){
+    car.vx-=fx*0.25;
+    car.vy-=fy*0.25;
+  }
+
+  let forward=car.vx*fx+car.vy*fy;
+  let sideX=car.vx-fx*forward;
+  let sideY=car.vy-fy*forward;
+
+  if(!keys["ArrowUp"]) forward*=0.94;
+  else forward*=0.992;
+
+  sideX*=0.985;
+  sideY*=0.985;
+
+  car.angle+=sideX*0.0038;
+
+  car.vx=fx*forward+sideX;
+  car.vy=fy*forward+sideY;
+
+  let speed=Math.hypot(car.vx,car.vy);
+
+  if(speed>14){
+    car.vx*=14/speed;
+    car.vy*=14/speed;
+  }
+
+  let turn=0.04+speed*0.0015;
+  if(keys["ArrowLeft"]) car.angle-=turn;
+  if(keys["ArrowRight"]) car.angle+=turn;
+
+  let m=slide(car.x,car.y,car.vx,car.vy);
+  car.x=m.x; car.y=m.y;
+  car.vx=m.vx; car.vy=m.vy;
+
+  // ===== ДРИФТ =====
+  let velA=Math.atan2(car.vy,car.vx);
+  let diff=Math.abs(wrap(velA-car.angle));
+  let drifting=diff>0.5 && speed>6;
+
+  if(drifting){
+    driftScore+=diff*speed*0.4;
+
+    smoke.push({x:car.x,y:car.y,life:30,size:8+Math.random()*6});
+
+    let offX=Math.cos(car.angle+Math.PI/2)*10;
+    let offY=Math.sin(car.angle+Math.PI/2)*10;
+
+    marks.push({x:car.x+offX,y:car.y+offY,life:120});
+    marks.push({x:car.x-offX,y:car.y-offY,life:120});
+  }
+
+  // ===== ЗВУК =====
+  if(audioCtx){
+    engineOsc.frequency.value=60+speed*5;
+    engineGain.gain.value+=((Math.min(0.12,speed/120))-engineGain.gain.value)*0.05;
+
+    skidGain.gain.value+=((drifting?0.08:0)-skidGain.gain.value)*0.1;
+
+    let t=Date.now()*0.002;
+    sirenOsc.frequency.value=600+Math.sin(t)*200;
+    sirenGain.gain.value+=((cops.length?0.03:0)-sirenGain.gain.value)*0.05;
+  }
+
+  // ===== СПАВН КОПОВ =====
+  let desired=0;
+  if(driftScore>=1000) desired=1;
+  if(driftScore>=5000) desired=2;
+  if(driftScore>=50000) desired=3+Math.floor((driftScore-50000)/50000);
+  desired=Math.min(10,desired);
+
+  while(cops.length<desired){
+    let s=spawn();
+    cops.push({x:s.x,y:s.y,vx:0,vy:0,angle:0,hold:0});
+  }
+
+  // ===== КОПЫ =====
+  // 1) поведение + лёгкое расхождение (разные "дороги")
+  cops.forEach((c,i)=>{
+    let dx=car.x-c.x;
+    let dy=car.y-c.y;
+    let dist=Math.hypot(dx,dy);
+
+    let ang=Math.atan2(dy,dx);
+
+    // если близко — не в центр, а слегка обходит
+    if(dist < 110){
+      ang += (i%2===0 ? 0.35 : -0.35) * Math.PI;
+    }
+
+    let dA=wrap(ang-c.angle);
+    c.angle+=dA*0.18;
+
+    // скорость чуть ниже прежней
+    c.vx+=Math.cos(c.angle)*1.05;
+    c.vy+=Math.sin(c.angle)*1.05;
+
+    c.vx*=0.9;
+    c.vy*=0.9;
+
+    // separation между копами (чтобы не ехали по одной линии)
+    for(let j=0;j<cops.length;j++){
+      if(i===j) continue;
+      let o=cops[j];
+      let ddx=c.x-o.x, ddy=c.y-o.y;
+      let d=Math.hypot(ddx,ddy);
+      let min=COP_R*2;
+      if(d>0.01 && d<min){
+        let nx=ddx/d, ny=ddy/d;
+        let push=(min-d)*0.5;
+        c.x += nx*push;
+        c.y += ny*push;
+      }
+    }
+
+    let mc=slide(c.x,c.y,c.vx,c.vy);
+    c.x=mc.x; c.y=mc.y;
+    c.vx=mc.vx; c.vy=mc.vy;
+
+    // столкновение с игроком (без прилипания)
+    if(dist < (CAR_R+COP_R) && dist>0.01){
+      let nx=dx/dist, ny=dy/dist;
+      let overlap=(CAR_R+COP_R)-dist;
+
+      car.x+=nx*overlap*0.7;
+      car.y+=ny*overlap*0.7;
+
+      c.x-=nx*overlap*0.3;
+      c.y-=ny*overlap*0.3;
+
+      // убираем движение внутрь игрока
+      let dot = c.vx*nx + c.vy*ny;
+      if(dot>0){
+        c.vx -= nx*dot;
+        c.vy -= ny*dot;
+      }
+    }
+
+    // ===== ПОИМКА ~1 СЕК =====
+    if(dist<95){
+      c.hold++;
+      car.vx*=0.965;
+      car.vy*=0.965;
+
+      if(c.hold>60) gameOver=true; // ~1 сек (60fps)
+    }else c.hold=0;
+  });
+
+  // эффекты
+  smoke.forEach(s=>s.life--);
+  smoke=smoke.filter(s=>s.life>0);
+
+  marks.forEach(m=>m.life--);
+  marks=marks.filter(m=>m.life>0);
+
+  camera.x=car.x-canvas.width/2;
+  camera.y=car.y-canvas.height/2;
+}
+
+// ===== DRAW =====
+function draw(){
+  ctx.fillStyle="#000";
+  ctx.fillRect(0,0,canvas.width,canvas.height);
+
+  ctx.save();
+  ctx.translate(-camera.x,-camera.y);
+
+  ctx.drawImage(mapImg,0,0,W,H);
+
+  // следы
+  marks.forEach(m=>{
+    ctx.fillStyle="rgba(0,0,0,"+(m.life/120)+")";
+    ctx.fillRect(m.x-3,m.y-3,6,6);
+  });
+
+  // дым
+  smoke.forEach(s=>{
+    ctx.fillStyle="rgba(200,200,200,"+(s.life/30)+")";
+    ctx.beginPath();
+    ctx.arc(s.x,s.y,s.size,0,Math.PI*2);
+    ctx.fill();
+  });
+
+  // копы
+  cops.forEach(c=>{
+    ctx.save();
+    ctx.translate(c.x,c.y);
+    ctx.rotate(c.angle-Math.PI/2);
+    ctx.drawImage(policeImg,-50,-100,100,200);
+    ctx.restore();
+  });
+
+  // машина
+  ctx.save();
+  ctx.translate(car.x,car.y);
+  ctx.rotate(car.angle-Math.PI/2);
+  ctx.drawImage(carImg,-45,-90,90,180);
+  ctx.restore();
+
+  ctx.restore();
+
+  ctx.fillStyle="white";
+  ctx.font="bold 50px Arial";
+  ctx.fillText("Drift: "+Math.floor(driftScore),20,60);
+
+  if(gameOver){
+    ctx.fillStyle="rgba(0,0,0,0.7)";
+    ctx.fillRect(0,0,canvas.width,canvas.height);
+
+    ctx.fillStyle="white";
+    ctx.font="bold 40px Arial";
+    ctx.textAlign="center";
+    ctx.fillText("Тебя приняли", canvas.width/2, canvas.height/2);
+    ctx.fillText("ENTER чтобы начать заново", canvas.width/2, canvas.height/2+60);
+  }
+}
+
+// ===== LOOP =====
+function loop(){
+  if(ready<4){ requestAnimationFrame(loop); return; }
+  if(!car) reset();
+
+  update();
+  draw();
+
+  requestAnimationFrame(loop);
+}
+loop();
+</script>
+</body>
+</html>
